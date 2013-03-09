@@ -2,6 +2,149 @@
 ! Sun Path Chart
 ! gfortran -I/usr/local/dislin/gf -L/usr/local/dislin/ -ldislin Sunpathchart.f90 -o Sunchart
 
+Program Sunpathchart
+use location_time
+use NREL_tables
+use DISLIN
+
+implicit none
+integer, dimension(3) :: sunrise,sunset,transit
+real(8) jd,jde,jc,jce,jme,beta,Dpsi,eps,lambda,R,nu,alpha,delta,e,Phi_az
+real(8) sidereal_time,times,timee,hh_dec,time
+integer hh_UT,mm_UT,ss_UT,hh_lst,mm_lst,ss_lst,n,n_steps
+real, allocatable :: elevation, azimuth
+
+namelist/input/tz,phi,sigma,elev,press,Temp,delta_T
+!--------------------------------------------------------------------------------
+		
+!Level 0
+	CALL METAFL ('PDF')!Formato de salida
+	Call SETFIL ('Sunpathchart.pdf')
+	CALL PAGE (2250, 1670) ! (NXP, NYP)
+    CALL DISINI !Inicio de DISLIN, Level 0->1
+!Level 1
+
+	CALL PSFONT ('Times-Bold')
+	CALL PAGERA !Imprime los bordes de pagina
+    !CALL AXSPOS(200,1500) !Posicion esquina inf-izq
+    CALL AXSLEN(2000,1400) !Largo grafico
+    CALL NAME('Solar Azimuth','X') !Titulo eje
+    CALL NAME('Solar Elevation','Y')
+	CALL LABDIG(-1,'X') !cruce ejes
+	CALL GRID (1, 1) ! numbers of grid lines between labels
+	!CALL TICKS(24,'X') !Ticks ejes
+	!CALL TICKS(18,'Y')
+	!CALL DUPLX !Formato fuente
+	CALL LABDIG (1, 'xyz')
+	CALL AX2GRF
+	!CALL MESSAG ('Leyenda', NX, NY) !plots text
+
+	!CALL QPLSCA (x, y, n) ! Scatter Plot
+	CALL HEIGHT (35)
+	CALL GRAF (-180.,180.,-180.,30.,0.0,90.0,0.,10.) !Def. Graf., Level 1->2
+!Level 2
+
+	CALL COLOR('Fore') !Retorna al color por defecto
+	CALL HEIGHT (55)
+	CALL TITLE
+	CALL COLOR ('RED')
+	CALL INCMRK (0) ! selects line or symbol mode for CURVE
+	CALL CURVE (XRAY, YRAY, N) ! connects data points with lines
+
+open(unit=1,file='solar.dat')
+read(1,input)
+close(1)
+phi = phi * deg_to_rad
+time_step = 20  
+
+Write (*,*)  '  Solar Path Diagram'
+Write (*,*)  '  Latitude:     (ex. -33.46) '
+read (*,*) phi
+Write (*,*)  '  Longitude:     (ex. -70.64) '
+read (*,*) sigma
+
+year = 2011
+month =12
+day = 21 
+
+call plotday
+
+subroutine plotday
+use location_time
+
+call sunrise_sunset(sunrise,sunset,transit)
+
+times = 3600.d0*sunrise(1) + 60.d0*(sunrise(2) + 1)
+timee = 3600.d0*sunset(1) + 60.d0*(sunset(2) - 1)
+
+n_steps = int((timee - times)/time_step)
+allocate elevation(n_steps+1)
+allocate azimuth(n_steps+1)
+
+n = 0
+
+time = times
+
+1200: do
+   hh_dec = time/3600.d0
+   hh_lst = int(hh_dec) 
+   mm_lst = int((hh_dec - hh_lst)*60.d0)
+   ss_lst = time - 3600.d0*hh_lst - 60.d0*mm_lst
+   if (ss_lst == 60) then
+     mm_lst = mm_lst + 1
+     ss_lst = 0
+   end if
+
+   if (mm_lst == 60) then
+     hh_lst = hh_lst + 1
+     mm_lst = 0
+   end if
+  
+
+   call get_UT_time(hh_lst,mm_lst,ss_lst,hh_UT,mm_UT,ss_UT)
+
+   call julian_date(hh_UT,mm_UT,ss_UT,jd,jc)
+
+   call julian_ephemeris(jd,jde,jce,jme)
+
+   call heliocentric_geocentric(jd,jde,jc,jce,jme,eps,beta,lambda,Dpsi,R)
+
+
+   !...apparent sidereal time at Greenwich (degrees)
+   nu = sidereal_time(jd,jc,eps,Dpsi)
+
+   !...geocentric sun right ascension and declination (degrees)
+   call geocentric_RA_declination(lambda,eps,beta,alpha,delta)
+
+   call elevation_azimuth(nu,alpha,delta,R,e,Phi_az)
+
+   !write(21,100) hh_lst,mm_lst,ss_lst,hh_dec,e,Phi_az
+   
+   if (n <= n_steps) then
+     n = n + 1
+     elevation(n) = e
+     azimuth(n) = Phi_az
+     
+     time = times + n * time_step
+   else
+     if (time < timee) then
+       time = timee
+     else 
+       
+       call CURVE (azimuth, elevation, n_steps)
+       deallocate elevation, azimuth
+       exit 1200
+     end if
+   end if
+end do
+
+
+100 format(I2.2,':',I2.2,':',I2.2,F10.5,F11.5,F11.5)
+
+call DISFIN
+close(21)
+
+contains
 
 module NREL_tables
 implicit none
@@ -240,155 +383,6 @@ real(8), parameter :: pi = 3.141592653589793238462643d0
 real(8), parameter :: deg_to_rad = pi/180.d0, rad_to_deg = 180.d0/pi
 
 end module location_time
-
-
-Program Sunpathchart
-use location_time
-use NREL_tables
-use DISLIN
-
-implicit none
-integer, dimension(3) :: sunrise,sunset,transit
-real(8) jd,jde,jc,jce,jme,beta,Dpsi,eps,lambda,R,nu,alpha,delta,e,Phi_az
-real(8) sidereal_time,times,timee,hh_dec,time
-integer hh_UT,mm_UT,ss_UT,hh_lst,mm_lst,ss_lst,n,n_steps
-real, allocatable  (:) :: elevation, azimuth
-
-namelist/input/tz,phi,sigma,elev,press,Temp,delta_T
-!--------------------------------------------------------------------------------
-		
-!Level 0
-	CALL METAFL ('PDF')!Formato de salida
-	Call SETFIL ('Sunpathchart.pdf')
-	CALL PAGE (2250, 1670) ! (NXP, NYP)
-    CALL DISINI !Inicio de DISLIN, Level 0->1
-!Level 1
-
-	CALL PSFONT ('Times-Bold')
-	CALL PAGERA !Imprime los bordes de pagina
-    !CALL AXSPOS(200,1500) !Posicion esquina inf-izq
-    CALL AXSLEN(2000,1400) !Largo grafico
-    CALL NAME('Solar Azimuth','X') !Titulo eje
-    CALL NAME('Solar Elevation','Y')
-	CALL LABDIG(-1,'X') !cruce ejes
-	CALL GRID (1, 1) ! numbers of grid lines between labels
-	!CALL TICKS(24,'X') !Ticks ejes
-	!CALL TICKS(18,'Y')
-	!CALL DUPLX !Formato fuente
-	CALL LABDIG (1, 'xyz')
-	CALL AX2GRF
-	!CALL MESSAG ('Leyenda', NX, NY) !plots text
-
-	!CALL QPLSCA (x, y, n) ! Scatter Plot
-	CALL HEIGHT (35)
-	CALL GRAF (-180.,180.,-180.,30.,0.0,90.0,0.,10.) !Def. Graf., Level 1->2
-!Level 2
-
-	CALL COLOR('Fore') !Retorna al color por defecto
-	CALL HEIGHT (55)
-	CALL TITLE
-	CALL COLOR ('RED')
-	CALL INCMRK (0) ! selects line or symbol mode for CURVE
-	CALL CURVE (XRAY, YRAY, N) ! connects data points with lines
-
-open(unit=1,file='solar.dat')
-read(1,input)
-close(1)
-phi = phi * deg_to_rad
-time_step = 20  
-
-Write (*,*)  '  Solar Path Diagram'
-Write (*,*)  '  Latitude:     (ex. -33.46) '
-read (*,*) phi
-Write (*,*)  '  Longitude:     (ex. -70.64) '
-read (*,*) sigma
-
-year = 2011
-month =12
-day = 21 
-
-call plotday
-
-subroutine plotday
-use location_time
-
-call sunrise_sunset(sunrise,sunset,transit)
-
-times = 3600.d0*sunrise(1) + 60.d0*(sunrise(2) + 1)
-timee = 3600.d0*sunset(1) + 60.d0*(sunset(2) - 1)
-
-n_steps = int((timee - times)/time_step)
-allocate elevation(n_steps+1)
-allocate azimuth(n_steps+1)
-
-n = 0
-
-time = times
-
-1200: do
-   hh_dec = time/3600.d0
-   hh_lst = int(hh_dec) 
-   mm_lst = int((hh_dec - hh_lst)*60.d0)
-   ss_lst = time - 3600.d0*hh_lst - 60.d0*mm_lst
-   if (ss_lst == 60) then
-     mm_lst = mm_lst + 1
-     ss_lst = 0
-   end if
-
-   if (mm_lst == 60) then
-     hh_lst = hh_lst + 1
-     mm_lst = 0
-   end if
-  
-
-   call get_UT_time(hh_lst,mm_lst,ss_lst,hh_UT,mm_UT,ss_UT)
-
-   call julian_date(hh_UT,mm_UT,ss_UT,jd,jc)
-
-   call julian_ephemeris(jd,jde,jce,jme)
-
-   call heliocentric_geocentric(jd,jde,jc,jce,jme,eps,beta,lambda,Dpsi,R)
-
-
-   !...apparent sidereal time at Greenwich (degrees)
-   nu = sidereal_time(jd,jc,eps,Dpsi)
-
-   !...geocentric sun right ascension and declination (degrees)
-   call geocentric_RA_declination(lambda,eps,beta,alpha,delta)
-
-   call elevation_azimuth(nu,alpha,delta,R,e,Phi_az)
-
-   !write(21,100) hh_lst,mm_lst,ss_lst,hh_dec,e,Phi_az
-   
-   if (n <= n_steps) then
-     n = n + 1
-     elevation(n) = e
-     azimuth(n) = Phi_az
-     
-     time = times + n * time_step
-   else
-     if (time < timee) then
-       time = timee
-     else 
-       
-       call CURVE (azimuth, elevation, n_steps)
-       deallocate elevation, azimuth
-       exit 1200
-     end if
-   end if
-end do
-
-
-100 format(I2.2,':',I2.2,':',I2.2,F10.5,F11.5,F11.5)
-
-call DISFIN
-close(21)
-
-
-END
-
-
-
 subroutine sunrise_sunset(sunrise,sunset,transit)
 use location_time
 implicit none
@@ -880,3 +874,4 @@ ss_UT = ss_lst
 
 end subroutine
  
+end
