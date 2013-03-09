@@ -1,0 +1,6 @@
+To Do's
+----
+
+Color de relleno segun irradiancia para cielo claro
+
+
